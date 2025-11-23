@@ -3,11 +3,52 @@ import { createServer } from "http";
 import "dotenv/config";
 
 // Get allowed origins from environment or use defaults
-const allowedOrigins = process.env.ORIGIN 
-  ? process.env.ORIGIN.split(",").map(origin => origin.trim())
-  : ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"];
+// In development, allow more flexible origins for local network testing
+const isDevelopment = process.env.NODE_ENV !== "production";
+const defaultOrigins = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"];
 
-console.log("Allowed CORS origins:", allowedOrigins);
+let allowedOrigins: string[] | ((origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => void);
+
+if (process.env.ORIGIN) {
+  // Use explicit origins from environment
+  allowedOrigins = process.env.ORIGIN.split(",").map(origin => origin.trim());
+  console.log("Allowed CORS origins (from ORIGIN env):", allowedOrigins);
+} else if (isDevelopment) {
+  // In development, use a function to allow localhost and local network IPs
+  allowedOrigins = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    if (!origin) {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      return callback(null, true);
+    }
+    
+    // Allow localhost origins
+    if (defaultOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Allow local network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    const localNetworkPattern = /^http:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3}):\d+$/;
+    if (localNetworkPattern.test(origin)) {
+      console.log(`✅ Allowing local network origin: ${origin}`);
+      return callback(null, true);
+    }
+    
+    // Block other origins in development
+    console.warn(`⚠️ Blocked origin in development: ${origin}`);
+    console.warn(`   Configure ORIGIN env variable to allow this origin`);
+    callback(new Error("Not allowed by CORS"));
+  };
+  console.log("Allowed CORS origins (development mode - flexible):");
+  console.log("   - localhost origins:", defaultOrigins);
+  console.log("   - local network IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)");
+  console.log("   - Configure ORIGIN env variable for production");
+} else {
+  // Production: strict origins only
+  allowedOrigins = defaultOrigins;
+  console.warn("⚠️ PRODUCTION MODE: Using default localhost origins only");
+  console.warn("   Configure ORIGIN env variable for production!");
+  console.log("Allowed CORS origins:", allowedOrigins);
+}
 
 // Create HTTP server
 const httpServer = createServer();
